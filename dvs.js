@@ -149,6 +149,7 @@ if (program.status) {
       var processIndex = list.map(function(process) { return process.name; }).indexOf(SERVER_NAME);
       if (processIndex === -1) {
         console.log('Server is not yet started');
+        pm2.disconnect();
         return;
       }
       console.log('Server is '+list[processIndex].pm2_env.status);
@@ -161,7 +162,7 @@ if (program.status) {
       if (!err && proc.success) {
         console.log('Server started');
       }
-      pm2.disconnect(function() { process.exit(0) });
+      pm2.disconnect();
     });
   });
 } else if (program.stop) {
@@ -170,7 +171,7 @@ if (program.status) {
       if (!err && proc.success) {
         console.log('Server stopped');
       }
-      pm2.disconnect(function() { process.exit(0) });
+      pm2.disconnect();
     });
   });
 }
