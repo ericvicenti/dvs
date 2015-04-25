@@ -2,7 +2,7 @@
 
 var level = require('level');
 var diff = require('diff');
-var exec = require('child_process').exec;
+var exec = require('child_process').execFile;
 var fs = require('fs');
 var isBinary = require('is-binary');
 var md5_file = require('md5-file').async;
@@ -12,6 +12,8 @@ var pm2 = require('pm2');
 var program = require('commander');
 
 var HOME_DIR = process.env[(process.platform == 'win32') ? 'USERPROFILE' : 'HOME'];
+
+var db = level(path.join(HOME_DIR, '.dvs'));
 
 // // Old stuff:
 
@@ -118,6 +120,9 @@ program
   // .option('-f, --from [id]', 'ID of the source for a new commit')
   // .option('-g, --get [id]', 'Get a commit by ID')
   .option('-s --status', 'Get the status of the server')
+  .option('-l --link [host]', 'Link to a DVS peer')
+  .option('--peers', 'List connected peers')
+  .option('-p --port [port]', 'Specify the port when linking a new peer')
   .option('--start', 'Start the server')
   .option('--stop', 'Stop the server')
   .option('-l --link', 'Add a DVS server peer')
@@ -185,21 +190,58 @@ if (program.stop) {
   return;
 }
 
-function get(endpoint, cb) {
-  exec('curl localhost:8288/' + endpoint, {}, function(err, stdout, stderr) {
+function dvsGet(endpoint, cb) {
+  endpoint = endpoint.join ? endpoint.join('/') : endpoint;
+  exec('curl', ['localhost:8288/' + endpoint], function(err, stdout, stderr) {
     if (err) {
       return cb(err);
     }
-    cb(null, stdout, stderr);
-    console.log(stdout, stderr);
+    var out = JSON.parse(stdout);
+    cb(null, out);
+  });
+}
+
+function dvsPost(endpoint, data, cb) {
+  endpoint = endpoint.join ? endpoint.join('/') : endpoint;
+  exec('curl', [
+    'localhost:8288/' + endpoint,
+    '-d',
+    JSON.stringify(data),
+    '-H',
+    'Content-Type: application/json'
+  ], function(err, stdout, stderr) {
+    if (err) {
+      return cb(err);
+    }
+    var out = JSON.parse(stdout);
+    cb(null, out);
   });
 }
 
 if (program.link) {
-  get('peers', function(err) {
+  var port = program.port || 8288;
+  if (typeof program.link !== 'string') {
+    console.log('You must specify the peer host!');
+    console.log('eg. dvs -l 123.123.123.123 -p 8288');
+    return;
+  }
+  dvsPost('peers', {host: program.link, port: port}, function(err, peer) {
     if (err) {
+      console.log('Could not add peer!');
       return;
     }
-  })
+    console.log('Added DVS peer: ' + peer.host + ':' + peer.port );
+  });
+  return;
 }
 
+if (program.peers) {
+  dvsGet('peers', function(err, peers) {
+    if (err) {
+      console.log('Could not fetch peers!');
+      return;
+    }
+    console.log(peers);
+  });
+  return;
+}
