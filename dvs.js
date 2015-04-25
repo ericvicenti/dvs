@@ -2,6 +2,7 @@
 
 var level = require('level');
 var diff = require('diff');
+var exec = require('child_process').exec;
 var fs = require('fs');
 var isBinary = require('is-binary');
 var md5_file = require('md5-file').async;
@@ -119,6 +120,7 @@ program
   .option('-s --status', 'Get the status of the server')
   .option('--start', 'Start the server')
   .option('--stop', 'Stop the server')
+  .option('-l --link', 'Add a DVS server peer')
   .parse(process.argv);
 
 // if (program.commit) {
@@ -156,7 +158,10 @@ if (program.status) {
       pm2.disconnect();
     });
   });
-} else if (program.start) {
+  return;
+}
+
+if (program.start) {
   pm2.connect(function(err) {
     pm2.start(path.join(__dirname, 'dvs_server.js'), {name: SERVER_NAME}, function(err, proc) {
       if (!err && proc.success) {
@@ -165,7 +170,10 @@ if (program.status) {
       pm2.disconnect();
     });
   });
-} else if (program.stop) {
+  return;
+}
+
+if (program.stop) {
   pm2.connect(function(err) {
     pm2.stop(SERVER_NAME, function(err, proc) {
       if (!err && proc.success) {
@@ -174,6 +182,24 @@ if (program.status) {
       pm2.disconnect();
     });
   });
+  return;
 }
 
+function get(endpoint, cb) {
+  exec('curl localhost:8288/' + endpoint, {}, function(err, stdout, stderr) {
+    if (err) {
+      return cb(err);
+    }
+    cb(null, stdout, stderr);
+    console.log(stdout, stderr);
+  });
+}
+
+if (program.link) {
+  get('peers', function(err) {
+    if (err) {
+      return;
+    }
+  })
+}
 
