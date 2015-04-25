@@ -18,7 +18,7 @@ function returnErr(res, err) {
   res.end();
 }
 
-exec('curl ifconfig.co', {}, function(err, stdout, stderr) {
+exec('curl -4 ifconfig.co', {}, function(err, stdout, stderr) {
   if (err) {
     sendErr(res, err);
     console.error(err);
