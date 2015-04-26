@@ -6,6 +6,7 @@ var crypto = require('crypto');
 var express = require('express');
 var exec = require('child_process').execFile;
 var execSync = require('child_process').execFileSync;
+var jsonStringify = require('json-stable-stringify');
 var getGistIdentities = require('./getGistIdentities');
 var md5 = require('MD5');
 var path = require('path');
@@ -97,7 +98,7 @@ function fetchGhIdentities(params, cb) {
       cb();
       return;
     }
-    db.put('verified_ids', JSON.stringify(ids), function(err) {
+    db.put('verified_ids', jsonStringify(ids), function(err) {
       if (err) {
         log('Github identity saving failed!');
         cb();
@@ -148,7 +149,7 @@ function dvsPost(peerId, endpoint, data, cb) {
   exec('curl', [
     getPeerUrl(peerId) + '/' + endpoint,
     '-d',
-    JSON.stringify(data),
+    jsonStringify(data),
     '-H',
     'Content-Type: application/json'
   ], function(err, stdout, stderr) {
@@ -161,12 +162,12 @@ function dvsPost(peerId, endpoint, data, cb) {
 }
 
 function returnServerErr(res, err) {
-  err = JSON.stringify({ error: err });
+  err = jsonStringify({ error: err });
   res.status(500).send(err).end();
 }
 
 function returnReqError(res, err) {
-  err = JSON.stringify({ error: err });
+  err = jsonStringify({ error: err });
   res.status(400).send(err).end();
 }
 
@@ -177,7 +178,7 @@ exec('curl', ['-4', 'ifconfig.co'], function(err, stdout, stderr) {
   }
   var ip = stdout.split('\n')[0];
   var peer = [ip, SERVER_PORT];
-  var peerId = md5(JSON.stringify(peer));
+  var peerId = md5(jsonStringify(peer));
   MY_PEER_ID = peerId;
   log('Identified myself as peer '+peerId);
   peers[peerId] = peer;
@@ -198,7 +199,7 @@ app.post('/peers', function(req, res, next) {
     return returnReqError(res, 'Peer port is required');
   }
   var newPeer = [p.host, p.port];
-  var peerId = md5(JSON.stringify(newPeer));
+  var peerId = md5(jsonStringify(newPeer));
   peers[peerId] = newPeer;
   schedule('introducePeer', {peerId: peerId});
   res.send({
@@ -212,7 +213,7 @@ function unpackAndVerify(bundle) {
   var signature = data.signature;
   delete data.signature;
   var verify = crypto.createVerify('RSA-SHA256');
-  verify.update(JSON.stringify(data));
+  verify.update(jsonStringify(data));
   console.log('UNPACKKK', data.identity);
   if (verify.verify(new Buffer(data.identity), signature, 'hex')) {
     data.signature = signature;

@@ -5,6 +5,7 @@ var diff = require('diff');
 var crypto = require('crypto');
 var exec = require('child_process').execFile;
 var execSync = require('child_process').execFileSync;
+var jsonStringify = require('json-stable-stringify');
 var fs = require('fs');
 var isBinary = require('is-binary');
 var md5_file = require('md5-file').async;
@@ -55,7 +56,7 @@ var DVS_PUBLIC_KEY = null;
 // function commitNewFile(file, cb) {
 //   _createFileCommit(file, function(err, commit) {
 //     if (err) return cb(err);
-//     db.put(commit.id, JSON.stringify(commit), function(err) {
+//     db.put(commit.id, jsonStringify(commit), function(err) {
 //       if (err) return cb(err);
 //       return cb(null, commit.id);
 //     });
@@ -80,7 +81,7 @@ var DVS_PUBLIC_KEY = null;
 //         );
 //         delete commit.data;
 //       }
-//       db.put(commit.sign, JSON.stringify(commit), function(err) {
+//       db.put(commit.sign, jsonStringify(commit), function(err) {
 //         if (err) return cb(err);
 //         return cb(null, sign);
 //       });
@@ -212,7 +213,7 @@ function dvsPost(endpoint, data, cb) {
   exec('curl', [
     'localhost:8288/' + endpoint,
     '-d',
-    JSON.stringify(data),
+    jsonStringify(data),
     '-H',
     'Content-Type: application/json'
   ], function(err, stdout, stderr) {
@@ -309,9 +310,9 @@ if (program.identify) {
 function packAndSign(data, identity, secret) {
   data.identity = identity;
   var signer = crypto.createSign('RSA-SHA256');
-  signer.update(JSON.stringify(data));
+  signer.update(jsonStringify(data));
   data.signature = signer.sign(DVS_PRIVATE_KEY, 'hex');
-  return JSON.stringify(data);
+  return jsonStringify(data);
 }
 
 if (program.writeObject) {
