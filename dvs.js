@@ -2,7 +2,9 @@
 
 var level = require('level');
 var diff = require('diff');
+var crypto = require('crypto');
 var exec = require('child_process').execFile;
+var execSync = require('child_process').execFileSync;
 var fs = require('fs');
 var isBinary = require('is-binary');
 var md5_file = require('md5-file').async;
@@ -12,8 +14,13 @@ var pm2 = require('pm2');
 var program = require('commander');
 
 var HOME_DIR = process.env[(process.platform == 'win32') ? 'USERPROFILE' : 'HOME'];
+var DVS_DIR = path.join(HOME_DIR, '.dvs');
+execSync('mkdir', ['-p', DVS_DIR]);
+var DVS_PRIVATE_KEY_FILE = path.join(DVS_DIR, 'dvs.key');
+var DVS_PUBLIC_KEY_FILE = DVS_PRIVATE_KEY_FILE + '.pub';
 
-var db = level(path.join(HOME_DIR, '.dvs'));
+var DVS_PRIVATE_KEY = null;
+var DVS_PUBLIC_KEY = null;
 
 // // Old stuff:
 
@@ -116,16 +123,24 @@ var db = level(path.join(HOME_DIR, '.dvs'));
 
 program
   .version('0.0.1')
+
+  // legacy:
   // .option('-c, --commit [file]', 'Commit a file or folder')
   // .option('-f, --from [id]', 'ID of the source for a new commit')
   // .option('-g, --get [id]', 'Get a commit by ID')
-  .option('-s --status', 'Get the status of the server')
-  .option('-l --link [host]', 'Link to a DVS peer')
+
+  .option('--add-peer [host]', 'Link to a DVS peer')
   .option('--peers', 'List connected peers')
-  .option('-p --port [port]', 'Specify the port when linking a new peer')
+  .option('--port [port]', 'Specify the port when linking a new peer')
   .option('--start', 'Start the server')
+  .option('--identify [identity]', 'Sign a string to prove your identity')
   .option('--stop', 'Stop the server')
-  .option('-l --link', 'Add a DVS server peer')
+  .option('-s --status', 'Get the status of the server')
+
+  // dev:
+  .option('--write-object [data]', 'Write a string obj')
+  .option('--get-object [id]', 'Get an object by id')
+
   .parse(process.argv);
 
 // if (program.commit) {
@@ -167,24 +182,15 @@ if (program.status) {
 }
 
 if (program.start) {
-  pm2.connect(function(err) {
-    pm2.start(path.join(__dirname, 'dvs_server.js'), {name: SERVER_NAME}, function(err, proc) {
-      if (!err && proc.success) {
-        console.log('Server started');
-      }
-      pm2.disconnect();
-    });
-  });
-  return;
-}
-
-if (program.stop) {
-  pm2.connect(function(err) {
-    pm2.stop(SERVER_NAME, function(err, proc) {
-      if (!err && proc.success) {
-        console.log('Server stopped');
-      }
-      pm2.disconnect();
+  createKeyPairIfNeeded(function(err) {
+    if (err) return console.log('Could not create your key pair in '+DVS_DIR);
+    pm2.connect(function(err) {
+      pm2.start(path.join(__dirname, 'dvs_server.js'), {name: SERVER_NAME}, function(err, proc) {
+        if (!err && proc.success) {
+          console.log('Server started');
+        }
+        pm2.disconnect();
+      });
     });
   });
   return;
@@ -218,14 +224,50 @@ function dvsPost(endpoint, data, cb) {
   });
 }
 
-if (program.link) {
+function createKeyPairIfNeeded(cb) {
+  fs.exists(DVS_PUBLIC_KEY_FILE, function(exists) {
+    if (!exists) return createKeyPair(cb);
+    fs.exists(DVS_PRIVATE_KEY_FILE, function(exists) {
+      if (!exists) return createKeyPair(cb);
+      cb();
+    });
+  });
+}
+
+function createKeyPair(cb) {
+  exec('openssl', [
+    'genrsa',
+    '-out',
+    DVS_PRIVATE_KEY_FILE,
+    '2048'
+  ], function(err) {
+    if (err) return cb(err);
+    exec('openssl', [
+      'req',
+      '-key',
+      DVS_PRIVATE_KEY_FILE,
+      '-new',
+      '-x509',
+      '-out',
+      DVS_PUBLIC_KEY_FILE,
+      '-subj',
+      '/C=../ST=./L=./CN=.',
+    ], function(err, stdout, stderr) {
+      if (err) return cb(err);
+      console.log('Key pair created in '+DVS_DIR);
+      cb();
+    });
+  });
+}
+
+if (program.addPeer) {
   var port = program.port || 8288;
-  if (typeof program.link !== 'string') {
+  if (typeof program.addPeer !== 'string') {
     console.log('You must specify the peer host!');
     console.log('eg. dvs -l 123.123.123.123 -p 8288');
     return;
   }
-  dvsPost('peers', {host: program.link, port: port}, function(err, peer) {
+  dvsPost('peers', {host: program.addPeer, port: port}, function(err, peer) {
     if (err) {
       console.log('Could not add peer!');
       return;
@@ -245,3 +287,53 @@ if (program.peers) {
   });
   return;
 }
+
+// Keep usage of pub/private key after this reading. Keep --start above this so the error is not shown
+try {
+  DVS_PRIVATE_KEY = fs.readFileSync(DVS_PRIVATE_KEY_FILE, { encoding: 'utf8' });
+  DVS_PUBLIC_KEY = fs.readFileSync(DVS_PUBLIC_KEY_FILE, { encoding: 'utf8' });  
+} catch(e) {
+  console.log('Cannot read key pair! Run "dvs --start" to fix');
+}
+
+if (program.identify) {
+  console.log('Public key:');
+  console.log(DVS_PUBLIC_KEY);
+  console.log('Signature for identity "'+program.identify+'":');
+  var signer = crypto.createSign('RSA-SHA256');
+  signer.update(program.identify);
+  console.log(signer.sign(DVS_PRIVATE_KEY, 'hex'))
+  return;
+}
+
+function packAndSign(data, identity, secret) {
+  data.identity = identity;
+  var signer = crypto.createSign('RSA-SHA256');
+  signer.update(JSON.stringify(data));
+  data.signature = signer.sign(DVS_PRIVATE_KEY, 'hex');
+  return JSON.stringify(data);
+}
+
+if (program.writeObject) {
+  var bundle = packAndSign({ obj: program.writeObject }, DVS_PUBLIC_KEY, DVS_PRIVATE_KEY);
+  dvsPost('objects', {object: bundle}, function(err, response) {
+    if (err) {
+      console.log('Could not write object!');
+      return;
+    }
+    console.log('Wrote object ID: '+response.id);
+  });
+  return;
+}
+
+if (program.getObject) {
+  dvsGet('objects/'+program.getObject, function(err, response) {
+    if (err) {
+      console.log('Could not write object!');
+      return;
+    }
+    console.log(response);
+  });
+  return;
+}
+>>>>>>> basic hacky object sharing
