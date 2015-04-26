@@ -336,4 +336,3 @@ if (program.getObject) {
   });
   return;
 }
->>>>>>> basic hacky object sharing
